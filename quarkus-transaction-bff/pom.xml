@@ -80,7 +80,12 @@
         <!-- Métricas -->
         <dependency>
             <groupId>io.quarkus</groupId>
-            <artifactId>quarkus-smallrye-metrics</artifactId>
+            <artifactId>quarkus-micrometer</artifactId>
+        </dependency>
+
+        <dependency>
+            <groupId>io.quarkus</groupId>
+            <artifactId>quarkus-micrometer-registry-prometheus</artifactId>
         </dependency>
 
         <!-- OpenAPI / Swagger -->
@@ -131,6 +136,8 @@
             <artifactId>rest-assured</artifactId>
             <scope>test</scope>
         </dependency>
+
+
 
     </dependencies>
 

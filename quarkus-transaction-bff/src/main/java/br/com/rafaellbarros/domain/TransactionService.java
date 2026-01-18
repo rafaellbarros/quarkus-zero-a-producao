@@ -4,11 +4,13 @@ import br.com.rafaellbarros.api.dto.CpfDto;
 import br.com.rafaellbarros.api.dto.RequisicaoTransacaoDTO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.redis.client.RedisClient;
 import io.smallrye.jwt.build.Jwt;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.impl.jose.JWT;
+import jakarta.annotation.PostConstruct;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
@@ -18,8 +20,6 @@ import jakarta.ws.rs.core.Response;
 import org.apache.kafka.common.header.internals.RecordHeaders;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 import org.eclipse.microprofile.jwt.JsonWebToken;
-import org.eclipse.microprofile.metrics.MetricUnits;
-import org.eclipse.microprofile.metrics.annotation.Gauge;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Message;
@@ -44,13 +44,17 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
+
 
 @ApplicationScoped
 public class TransactionService {
 
 
     public static final String VALOR_TRANSACOES = "valorTransacoes";
+
+
     @Inject
     @RestClient
     CPFService cpfService;
@@ -75,9 +79,34 @@ public class TransactionService {
     @ConfigProperty(name = "app.secret")
     private String secret;
 
-    private BigDecimal contagemTransacoes = BigDecimal.ZERO;
-    private BigDecimal valorTransacoes = BigDecimal.ZERO;
 
+    @Inject
+    MeterRegistry registry;
+
+    private AtomicReference<BigDecimal> valorTransacoes = new AtomicReference<>(BigDecimal.ZERO);
+    private AtomicReference<BigDecimal> contagemTransacoes = new AtomicReference<>(BigDecimal.ZERO);
+
+    @PostConstruct
+    void initMetrics() {
+        // Registrar gauges no Micrometer
+        registry.gauge("valor_transacoes",
+                valorTransacoes,
+                ref -> ref.get().doubleValue());
+
+        registry.gauge("contagem_transacoes",
+                contagemTransacoes,
+                ref -> ref.get().doubleValue());
+    }
+
+    private void metrics(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
+        // Atualizar valores atomicamente
+        valorTransacoes.getAndUpdate(current -> current.add(requisicaoTransacaoDTO.getValor()));
+        contagemTransacoes.getAndUpdate(current -> current.add(BigDecimal.ONE));
+
+        // Opcional: também registrar como contadores para métricas incrementais
+        registry.counter("transacoes_total").increment();
+        registry.counter("transacoes_valor_total").increment(requisicaoTransacaoDTO.getValor().doubleValue());
+    }
 
     @Transactional
     public Optional<RequisicaoTransacaoDTO> save(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
@@ -108,10 +137,6 @@ public class TransactionService {
         return Optional.empty();
     }
 
-    private void metrics(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
-        valorTransacoes = valorTransacoes.add(requisicaoTransacaoDTO.getValor());
-        contagemTransacoes = contagemTransacoes.add(BigDecimal.ONE);
-    }
 
     private void validarCPF(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
         try {
@@ -182,16 +207,6 @@ public class TransactionService {
             return true;
         }
         return false;
-    }
-
-    @Gauge(name = "valorTransacoes", unit = MetricUnits.NONE, description = "Valor total de transacoes executadas.")
-    public BigDecimal getValorTransacoes() {
-        return valorTransacoes;
-    }
-
-    @Gauge(name = "contagemTransacoes", unit = MetricUnits.NONE, description = "Contagem do total de transacoes executadas.")
-    public BigDecimal getContagemTransacoes() {
-        return contagemTransacoes;
     }
 
     private void sendKafka(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {

@@ -19,8 +19,8 @@ scrape_configs:
     static_configs:
       - targets: ['localhost:9090']
 
-  - job_name: 'transaction'
-    scrape_interval: 10s
-    metrics_path: /q/metrics
+  - job_name: 'quarkus-transaction-bff'
+    metrics_path: '/q/metrics'
     static_configs:
-      - targets: ['192.168.0.19:8080']
+      - targets: ['host.docker.internal:8080']
+    scrape_interval: 5s
