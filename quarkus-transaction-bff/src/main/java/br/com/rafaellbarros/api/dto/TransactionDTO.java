@@ -1,6 +1,9 @@
 package br.com.rafaellbarros.api.dto;
 
 
+import br.com.rafaellbarros.domain.model.Conta;
+import br.com.rafaellbarros.domain.model.SituacaoEnum;
+import br.com.rafaellbarros.domain.model.TipoTransacaoEnum;
 import com.fasterxml.jackson.annotation.JsonFormat;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotNull;
@@ -30,10 +33,10 @@ public class TransactionDTO implements Serializable {
     @NotNull(message = "Informar o beneficiário da transação")
     @Schema(description = "Beneficiário da transação")
     @Valid
-    private BeneficiatioDto beneficiario;
+    private BeneficiatioDTO beneficiario;
     @NotNull(message = "Informar o tipo da transação")
     @Schema(description = "Tipo de transação")
-    private TipoTransacao tipoTransacao;
+    private TipoTransacaoEnum tipoTransacaoEnum;
     @Schema(description = "Código de identificação da transação")
     private UUID uuid;
     @Schema(description = "Situação da transação")
@@ -68,20 +71,20 @@ public class TransactionDTO implements Serializable {
         this.conta = conta;
     }
 
-    public BeneficiatioDto getBeneficiario() {
+    public BeneficiatioDTO getBeneficiario() {
         return beneficiario;
     }
 
-    public void setBeneficiario(BeneficiatioDto beneficiario) {
+    public void setBeneficiario(BeneficiatioDTO beneficiario) {
         this.beneficiario = beneficiario;
     }
 
-    public TipoTransacao getTipoTransacao() {
-        return tipoTransacao;
+    public TipoTransacaoEnum getTipoTransacao() {
+        return tipoTransacaoEnum;
     }
 
-    public void setTipoTransacao(TipoTransacao tipoTransacao) {
-        this.tipoTransacao = tipoTransacao;
+    public void setTipoTransacao(TipoTransacaoEnum tipoTransacaoEnum) {
+        this.tipoTransacaoEnum = tipoTransacaoEnum;
     }
 
     public UUID getUuid() {
@@ -134,7 +137,7 @@ public class TransactionDTO implements Serializable {
                 ", data=" + data +
                 ", conta=" + conta +
                 ", beneficiario=" + beneficiario +
-                ", tipoTransacao=" + tipoTransacao +
+                ", tipoTransacao=" + tipoTransacaoEnum +
                 ", uuid=" + uuid +
                 ", situacao=" + situacao +
                 '}';

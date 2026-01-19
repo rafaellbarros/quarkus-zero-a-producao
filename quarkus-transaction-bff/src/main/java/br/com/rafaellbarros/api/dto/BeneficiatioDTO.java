@@ -6,7 +6,7 @@ import org.eclipse.microprofile.openapi.annotations.media.Schema;
 
 import java.io.Serializable;
 
-public class BeneficiatioDto implements Serializable {
+public class BeneficiatioDTO implements Serializable {
 
     private static final long serialVersionUID = 2806421543985360625L;
 
@@ -26,7 +26,7 @@ public class BeneficiatioDto implements Serializable {
     @Schema(description = "Nome do Favorecido")
     private String nomeFavorecido;
 
-    public BeneficiatioDto() {
+    public BeneficiatioDTO() {
     }
 
 

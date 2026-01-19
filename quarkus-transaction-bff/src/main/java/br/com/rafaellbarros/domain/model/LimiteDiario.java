@@ -1,4 +1,4 @@
-package br.com.rafaellbarros.api.dto;
+package br.com.rafaellbarros.domain.model;
 
 import jakarta.validation.constraints.NotNull;
 import org.eclipse.microprofile.openapi.annotations.media.Schema;

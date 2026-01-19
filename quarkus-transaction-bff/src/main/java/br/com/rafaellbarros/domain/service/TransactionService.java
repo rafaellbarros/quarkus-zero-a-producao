@@ -1,6 +1,6 @@
-package br.com.rafaellbarros.domain;
+package br.com.rafaellbarros.domain.service;
 
-import br.com.rafaellbarros.api.dto.CpfDto;
+import br.com.rafaellbarros.api.dto.CpfDTO;
 import br.com.rafaellbarros.api.dto.RequisicaoTransacaoDTO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -140,7 +140,7 @@ public class TransactionService {
 
     private void validarCPF(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
         try {
-            final CpfDto cpfDto = cpfService.validarCPF(requisicaoTransacaoDTO.getBeneficiario().getCPF().toString());
+            final CpfDTO cpfDto = cpfService.validarCPF(requisicaoTransacaoDTO.getBeneficiario().getCPF().toString());
             if (!cpfDto.isValid()) {
                 throw new BadRequestException("CPF Inválido.");
             }

@@ -1,6 +1,6 @@
-package br.com.rafaellbarros.domain;
+package br.com.rafaellbarros.domain.service;
 
-import br.com.rafaellbarros.api.dto.LimiteDiario;
+import br.com.rafaellbarros.domain.model.LimiteDiario;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.MediaType;
 import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;

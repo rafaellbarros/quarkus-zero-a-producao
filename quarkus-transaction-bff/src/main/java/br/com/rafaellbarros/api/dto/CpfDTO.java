@@ -1,6 +1,6 @@
 package br.com.rafaellbarros.api.dto;
 
-public class CpfDto {
+public class CpfDTO {
 
     public String getCpf() {
         return cpf;

@@ -1,6 +1,6 @@
-package br.com.rafaellbarros.domain;
+package br.com.rafaellbarros.domain.service;
 
-import br.com.rafaellbarros.api.dto.CpfDto;
+import br.com.rafaellbarros.api.dto.CpfDTO;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.QueryParam;
@@ -11,5 +11,5 @@ import org.eclipse.microprofile.rest.client.inject.RegisterRestClient;
 public interface CPFService {
 
     @GET
-    CpfDto validarCPF(@QueryParam("cpf") final String cpf);
+    CpfDTO validarCPF(@QueryParam("cpf") final String cpf);
 }
