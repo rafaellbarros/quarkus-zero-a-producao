@@ -6,6 +6,7 @@ import br.com.rafaellbarros.api.dto.RequisicaoTransacaoDTO;
 import br.com.rafaellbarros.domain.exception.BusinessException;
 import br.com.rafaellbarros.domain.model.Conta;
 import br.com.rafaellbarros.domain.service.TransactionService;
+import io.smallrye.common.annotation.Blocking;
 import io.smallrye.common.annotation.NonBlocking;
 import io.smallrye.mutiny.Uni;
 import jakarta.annotation.security.RolesAllowed;
@@ -115,7 +116,8 @@ public class TransactionController implements TransactionApi {
     }
 
     @Override
-    @RolesAllowed("coffeeandit-transaction")
+    // @RolesAllowed("coffeeandit-transaction")
+    @Blocking
     public Response delete(String uuid) {
         // LOG.infof("Deletando transação %s pelo usuário %s", uuid, securityIdentity.getPrincipal().getName());
 
@@ -126,6 +128,7 @@ public class TransactionController implements TransactionApi {
     }
 
     @Override
+    @Blocking
     public RequisicaoTransacaoDTO findById(String uuid) {
         LOG.info("Procurando transação pelo uuid " + uuid);
 
