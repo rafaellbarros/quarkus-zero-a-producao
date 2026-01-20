@@ -2,31 +2,30 @@ package br.com.rafaellbarros.api.controller;
 
 
 import br.com.rafaellbarros.api.doc.TransactionApi;
-import br.com.rafaellbarros.domain.model.Conta;
 import br.com.rafaellbarros.api.dto.RequisicaoTransacaoDTO;
+import br.com.rafaellbarros.domain.exception.BusinessException;
+import br.com.rafaellbarros.domain.model.Conta;
 import br.com.rafaellbarros.domain.service.TransactionService;
-import io.quarkus.security.Authenticated;
-import io.quarkus.security.identity.SecurityIdentity;
-import io.smallrye.common.annotation.Blocking;
+import io.smallrye.common.annotation.NonBlocking;
+import io.smallrye.mutiny.Uni;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.enterprise.context.RequestScoped;
 import jakarta.inject.Inject;
 import jakarta.ws.rs.NotAuthorizedException;
 import jakarta.ws.rs.NotFoundException;
-import jakarta.ws.rs.ServerErrorException;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.Response;
 import jakarta.ws.rs.core.UriInfo;
 import org.eclipse.microprofile.jwt.Claim;
 import org.jboss.logging.Logger;
 
-import java.net.URI;
+import java.util.Map;
 import java.util.Objects;
-import java.util.Optional;
+import java.util.UUID;
 
-@Authenticated
+
+// @Authenticated
 @RequestScoped
-@Blocking
 public class TransactionController implements TransactionApi {
 
     private static final Logger LOG = Logger.getLogger(TransactionController.class);
@@ -34,8 +33,8 @@ public class TransactionController implements TransactionApi {
     @Inject
     TransactionService transactionService;
 
-    @Inject
-    SecurityIdentity securityIdentity;
+    // @Inject
+    // SecurityIdentity securityIdentity;
 
     @Claim("conta")
     String conta;
@@ -44,32 +43,81 @@ public class TransactionController implements TransactionApi {
     String agencia;
 
     @Override
-    @RolesAllowed("coffeeandit-transaction")
-    public Response save(@Context UriInfo uriInfo, RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
-        LOG.infof("Transação enviada pelo usuário %s - %s",
-                securityIdentity.getPrincipal().getName(),
-                requisicaoTransacaoDTO);
+    // @RolesAllowed("coffeeandit-transaction")
+    @NonBlocking
+    public Uni<Response> save(@Context UriInfo uriInfo, RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
 
-        Optional<RequisicaoTransacaoDTO> transacao =
-                transactionService.save(introspectAccount(requisicaoTransacaoDTO));
+        // Validação inicial
+        if (requisicaoTransacaoDTO.getValor() == null || requisicaoTransacaoDTO.getValor().intValue() <= 0) {
+            return Uni.createFrom().item(
+                    Response.status(Response.Status.BAD_REQUEST)
+                            .entity(Map.of("error", "Valor da transação inválido"))
+                            .build()
+            );
+        }
 
-        RequisicaoTransacaoDTO dto = transacao.orElseThrow(() ->
-                new NotFoundException("Não foi possível processar a transação"));
+        if (requisicaoTransacaoDTO.getTipoTransacao() == null) {
+            return Uni.createFrom().item(
+                    Response.status(Response.Status.BAD_REQUEST)
+                            .entity(Map.of("error", "Tipo de transação não especificado"))
+                            .build()
+            );
+        }
 
-        URI uri = uriInfo.getAbsolutePathBuilder()
-                .path(TransactionController.class, "findById")
-                .build(dto.getUuid().toString());
+        // Processa transação
+        return transactionService.save(requisicaoTransacaoDTO)
+                .onItem().ifNotNull().transform(optionalTransacao -> {
+                    return optionalTransacao.map(dto -> {
+                        // Sucesso
+                        return Response.status(Response.Status.CREATED)
+                                .header("Location", buildLocation(uriInfo, dto.getUuid()))
+                                .header("x-signature", dto.getSignature())
+                                .entity(buildSuccessEntity(dto))
+                                .build();
+                    }).orElseGet(() -> {
+                        // Processamento falhou
+                        return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                                .entity(Map.of("error", "Falha ao processar transação"))
+                                .build();
+                    });
+                })
+                .onFailure().recoverWithItem(this::handleError);
+    }
 
-        return Response.created(uri)
-                .header("x-signature", dto.getSignature())
+    private String buildLocation(UriInfo uriInfo, UUID transactionId) {
+        return uriInfo.getAbsolutePathBuilder()
+                .path(transactionId.toString())
+                .build()
+                .toString();
+    }
+
+    private Map<String, Object> buildSuccessEntity(RequisicaoTransacaoDTO dto) {
+        return Map.of(
+                "id", dto.getUuid(),
+                "status", "success",
+                "processedAt", dto.getData(),
+                "details", Map.of(
+                        "amount", dto.getValor(),
+                        "type", dto.getTipoTransacao().name()
+                )
+        );
+    }
+
+    private Response handleError(Throwable throwable) {
+        LOG.error("Error processing transaction", throwable);
+
+        return Response.status(Response.Status.INTERNAL_SERVER_ERROR)
+                .entity(Map.of(
+                        "error", "Internal server error",
+                        "reference", UUID.randomUUID()
+                ))
                 .build();
     }
 
     @Override
     @RolesAllowed("coffeeandit-transaction")
     public Response delete(String uuid) {
-        LOG.infof("Deletando transação %s pelo usuário %s",
-                uuid, securityIdentity.getPrincipal().getName());
+        // LOG.infof("Deletando transação %s pelo usuário %s", uuid, securityIdentity.getPrincipal().getName());
 
         if (transactionService.delete(uuid)) {
             return Response.noContent().build();
@@ -78,7 +126,6 @@ public class TransactionController implements TransactionApi {
     }
 
     @Override
-    @Blocking
     public RequisicaoTransacaoDTO findById(String uuid) {
         LOG.info("Procurando transação pelo uuid " + uuid);
 
@@ -88,20 +135,23 @@ public class TransactionController implements TransactionApi {
     }
 
     @Override
-    @Blocking
+    @NonBlocking
     @RolesAllowed("coffeeandit-transaction")
-    public RequisicaoTransacaoDTO aprovar(String uuid, String signature) {
+    public Response aprovar(String uuid, String signature) {
         LOG.info("Aprovando transação pelo uuid " + uuid);
 
         RequisicaoTransacaoDTO dto = transactionService.find(uuid)
-                .orElseThrow(() ->
-                        new NotFoundException("Não foi possível encontrar a transação"));
+                .orElseThrow(() -> new NotFoundException("Transação não encontrada: " + uuid));
 
-        return transactionService.aprovarTransacao(dto, signature)
-                .orElseThrow(() ->
-                        new ServerErrorException(
-                                "Não foi possível atualizar a transação",
-                                Response.serverError().build()));
+        try {
+            RequisicaoTransacaoDTO resultado = transactionService.aprovarTransacao(dto, signature)
+                    .orElseThrow(() -> new BusinessException("Falha ao aprovar transação"));
+
+            return Response.ok(resultado).build();
+
+        } catch (NotAuthorizedException e) {
+            return Response.status(401).entity("Assinatura inválida").build();
+        }
     }
 
     private RequisicaoTransacaoDTO introspectAccount(RequisicaoTransacaoDTO dto) {

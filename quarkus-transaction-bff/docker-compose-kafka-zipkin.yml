@@ -41,12 +41,11 @@ services:
     container_name: kafka
     hostname: kafka
     ports:
-      - "9092:9092" # Porta para acesso externo (seu PC)
+      - "9092:9092"
     environment:
       - KAFKA_NODE_ID=1
       - KAFKA_PROCESS_ROLES=broker,controller
       - KAFKA_CONTROLLER_LISTENER_NAMES=CONTROLLER
-      # Definimos dois listeners: INTERNAL (para o Kafka-UI) e EXTERNAL (para seu código/localhost)
       - KAFKA_LISTENERS=INTERNAL://:29092,EXTERNAL://:9092,CONTROLLER://:9093
       - KAFKA_ADVERTISED_LISTENERS=INTERNAL://kafka:29092,EXTERNAL://localhost:9092
       - KAFKA_LISTENER_SECURITY_PROTOCOL_MAP=INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT
@@ -66,10 +65,9 @@ services:
     image: provectuslabs/kafka-ui:latest
     container_name: kafka-ui
     ports:
-    - "8081:8080"
+      - "8081:8080"
     environment:
       - KAFKA_CLUSTERS_0_NAME=local
-      # Agora o UI se conecta via porta interna 29092
       - KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS=kafka:29092
       - DYNAMIC_CONFIG_ENABLED=true
     depends_on:
@@ -100,6 +98,28 @@ services:
       interval: 10s
       timeout: 5s
       retries: 3
+
+  # Interface 1: Redis Commander (Web Leve)
+  redis-commander:
+    image: rediscommander/redis-commander:latest
+    container_name: redis-commander
+    environment:
+      - REDIS_HOSTS=local:redis:6379
+    ports:
+      - "8082:8081" # Alterado para 8082 para não conflitar com Kafka-UI
+    depends_on:
+      redis:
+        condition: service_healthy
+
+  # Interface 2: Redis Insight (Oficial e Robusta)
+  redis-insight:
+    image: redis/redisinsight:latest
+    container_name: redis-insight
+    ports:
+      - "5540:5540"
+    depends_on:
+      redis:
+        condition: service_healthy
 
 volumes:
   kafka_data:

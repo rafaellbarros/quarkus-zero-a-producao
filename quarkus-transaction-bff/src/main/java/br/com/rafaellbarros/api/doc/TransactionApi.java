@@ -1,6 +1,7 @@
 package br.com.rafaellbarros.api.doc;
 
 import br.com.rafaellbarros.api.dto.RequisicaoTransacaoDTO;
+import io.smallrye.mutiny.Uni;
 import jakarta.ws.rs.*;
 import jakarta.ws.rs.core.Context;
 import jakarta.ws.rs.core.MediaType;
@@ -32,7 +33,7 @@ public interface TransactionApi {
         @APIResponse(responseCode = FORBIDDEN_CODE, description = FORBIDDEN_DESCRIPTION),
         @APIResponse(responseCode = NOT_FOUND_CODE, description = NOT_FOUND_DESCRIPTION)
     })
-    Response save(@Context UriInfo uriInfo, RequisicaoTransacaoDTO requisicaoTransacaoDTO);
+    Uni<Response> save(@Context UriInfo uriInfo, RequisicaoTransacaoDTO requisicaoTransacaoDTO);
 
     @GET
     @Path("/{uuid}")
@@ -59,7 +60,7 @@ public interface TransactionApi {
         @Parameter(name = "uuid", in = ParameterIn.PATH, description = TRANSACTION_UUID_PARAM),
         @Parameter(name = "x-signature", in = ParameterIn.HEADER, description = TRANSACTION_SIGNATURE_PARAM)
     })
-    RequisicaoTransacaoDTO aprovar(@PathParam("uuid") String uuid,
+    Response aprovar(@PathParam("uuid") String uuid,
                                    @HeaderParam("x-signature") String signature);
 
     @DELETE

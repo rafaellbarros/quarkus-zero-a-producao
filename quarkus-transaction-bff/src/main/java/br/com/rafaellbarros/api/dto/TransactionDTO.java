@@ -36,7 +36,7 @@ public class TransactionDTO implements Serializable {
     private BeneficiatioDTO beneficiario;
     @NotNull(message = "Informar o tipo da transação")
     @Schema(description = "Tipo de transação")
-    private TipoTransacaoEnum tipoTransacaoEnum;
+    private TipoTransacaoEnum tipoTransacao;
     @Schema(description = "Código de identificação da transação")
     private UUID uuid;
     @Schema(description = "Situação da transação")
@@ -80,11 +80,11 @@ public class TransactionDTO implements Serializable {
     }
 
     public TipoTransacaoEnum getTipoTransacao() {
-        return tipoTransacaoEnum;
+        return tipoTransacao;
     }
 
-    public void setTipoTransacao(TipoTransacaoEnum tipoTransacaoEnum) {
-        this.tipoTransacaoEnum = tipoTransacaoEnum;
+    public void setTipoTransacao(TipoTransacaoEnum tipoTransacao) {
+        this.tipoTransacao = tipoTransacao;
     }
 
     public UUID getUuid() {
@@ -137,7 +137,7 @@ public class TransactionDTO implements Serializable {
                 ", data=" + data +
                 ", conta=" + conta +
                 ", beneficiario=" + beneficiario +
-                ", tipoTransacao=" + tipoTransacaoEnum +
+                ", tipoTransacao=" + tipoTransacao +
                 ", uuid=" + uuid +
                 ", situacao=" + situacao +
                 '}';

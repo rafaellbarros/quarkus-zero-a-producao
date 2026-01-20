@@ -1,12 +1,16 @@
 package br.com.rafaellbarros.domain.service;
 
 import br.com.rafaellbarros.api.dto.CpfDTO;
+import br.com.rafaellbarros.api.dto.FailedMessageDTO;
 import br.com.rafaellbarros.api.dto.RequisicaoTransacaoDTO;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import io.micrometer.core.instrument.Counter;
 import io.micrometer.core.instrument.MeterRegistry;
 import io.quarkus.redis.client.RedisClient;
 import io.smallrye.jwt.build.Jwt;
+import io.smallrye.mutiny.Uni;
+import io.smallrye.mutiny.infrastructure.Infrastructure;
 import io.smallrye.reactive.messaging.kafka.api.OutgoingKafkaRecordMetadata;
 import io.vertx.core.json.JsonObject;
 import io.vertx.ext.auth.impl.jose.JWT;
@@ -23,7 +27,6 @@ import org.eclipse.microprofile.jwt.JsonWebToken;
 import org.eclipse.microprofile.reactive.messaging.Channel;
 import org.eclipse.microprofile.reactive.messaging.Emitter;
 import org.eclipse.microprofile.reactive.messaging.Message;
-import org.eclipse.microprofile.rest.client.inject.RestClient;
 import org.jboss.logging.Logger;
 
 import java.io.BufferedReader;
@@ -44,6 +47,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.LocalDateTime;
 import java.util.*;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.stream.Collectors;
 
@@ -55,11 +59,12 @@ public class TransactionService {
     public static final String VALOR_TRANSACOES = "valorTransacoes";
 
 
-    @Inject
-    @RestClient
-    CPFService cpfService;
+    // @Inject
+    // @RestClient
+    // CPFService cpfService;
 
     public static final int MINUTES = 15;
+
     @Inject
     RedisClient redisClient;
 
@@ -98,49 +103,48 @@ public class TransactionService {
                 ref -> ref.get().doubleValue());
     }
 
-    private void metrics(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
-        // Atualizar valores atomicamente
-        valorTransacoes.getAndUpdate(current -> current.add(requisicaoTransacaoDTO.getValor()));
-        contagemTransacoes.getAndUpdate(current -> current.add(BigDecimal.ONE));
 
-        // Opcional: também registrar como contadores para métricas incrementais
-        registry.counter("transacoes_total").increment();
-        registry.counter("transacoes_valor_total").increment(requisicaoTransacaoDTO.getValor().doubleValue());
-    }
 
     @Transactional
-    public Optional<RequisicaoTransacaoDTO> save(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
-        try {
+    public Uni<Optional<RequisicaoTransacaoDTO>> save(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
+        // Usa uma worker thread para operações bloqueantes
+        return Uni.createFrom().item(requisicaoTransacaoDTO)
+                .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+                .onItem().transform(dto -> {
+                    try {
+                        // Operações síncronas na worker thread
+                        dto.setUuid(UUID.randomUUID());
+                        dto.setData(LocalDateTime.now());
+                        dto.aceitaProcessamento();
 
-            validarCPF(requisicaoTransacaoDTO);
-            requisicaoTransacaoDTO.setUuid(UUID.randomUUID());
-            requisicaoTransacaoDTO.setData(LocalDateTime.now());
-            requisicaoTransacaoDTO.aceitaProcessamento();
-            try {
-                signature(requisicaoTransacaoDTO);
-            } catch (Exception e) {
-                LOG.error(e);
-                return Optional.empty();
-            }
-            sendKafka(requisicaoTransacaoDTO);
-            var payload = getObjectMapper().writeValueAsString(requisicaoTransacaoDTO);
-            redisClient.append(requisicaoTransacaoDTO.getUuid().toString(),
-                    payload);
-            redisClient.save();
-            metrics(requisicaoTransacaoDTO);
-            LOG.info("Transação salva " + requisicaoTransacaoDTO);
-            return Optional.of(requisicaoTransacaoDTO);
-        } catch (JsonProcessingException e) {
-            LOG.error(e.getMessage());
-        }
+                        return dto;
+                    } catch (Exception e) {
+                        LOG.error("Erro ao preparar transação: " + e.getMessage());
+                        throw new RuntimeException(e);
+                    }
+                })
+                .onItem().transformToUni(dto -> {
+                    // Salva no Redis (ainda na worker thread)
+                    return saveToRedis(dto);
+                })
+                .onItem().invoke(dto -> {
+                    // Tarefas assíncronas em background
+                    sendToKafkaAsync(dto);
+                    recordMetricsAsync(dto);
 
-        return Optional.empty();
+                    LOG.info("Transação processada: " + dto.getUuid());
+                })
+                .onItem().transform(dto -> Optional.of(dto))
+                .onFailure().recoverWithItem(throwable -> {
+                    LOG.error("Falha ao processar transação: " + throwable.getMessage());
+                    return Optional.empty();
+                });
     }
 
 
     private void validarCPF(final RequisicaoTransacaoDTO requisicaoTransacaoDTO) {
         try {
-            final CpfDTO cpfDto = cpfService.validarCPF(requisicaoTransacaoDTO.getBeneficiario().getCPF().toString());
+            final CpfDTO cpfDto = new CpfDTO(); // cpfService.validarCPF(requisicaoTransacaoDTO.getBeneficiario().getCPF().toString());
             if (!cpfDto.isValid()) {
                 throw new BadRequestException("CPF Inválido.");
             }
@@ -244,6 +248,7 @@ public class TransactionService {
     public Optional<RequisicaoTransacaoDTO> find(String uuid) {
 
         var response = redisClient.get(uuid);
+        LOG.info("find: " + response.toString());
         if (Objects.nonNull(response)) {
             try {
                 return Optional.of(getObjectMapper().readValue(response.toString(), RequisicaoTransacaoDTO.class));
@@ -288,5 +293,109 @@ public class TransactionService {
         }
     }
 
+    private Uni<RequisicaoTransacaoDTO> saveToRedis(RequisicaoTransacaoDTO dto) {
+        return Uni.createFrom().item(() -> {
+            try {
+                var payload = getObjectMapper().writeValueAsString(dto);
+                // Usa o cliente Redis assíncrono
+                redisClient.append(dto.getUuid().toString(), payload);
+
+                redisClient.save();
+
+                return dto;
+            } catch (JsonProcessingException e) {
+                LOG.error("Erro JSON: " + e.getMessage());
+                throw new RuntimeException(e);
+            } catch (Exception e) {
+                LOG.error("Erro Redis: " + e.getMessage());
+                throw new RuntimeException(e);
+            }
+        });
+    }
+
+    private void sendToKafkaAsync(RequisicaoTransacaoDTO dto) {
+        try {
+            // Envia de forma assíncrona
+            CompletionStage<Void> sendStage = transactionEmitter.send(dto);
+
+            // Adiciona tratamento de sucesso
+            sendStage.thenRun(() -> {
+                LOG.debug("Mensagem enviada com sucesso para Kafka: " + dto.getUuid());
+            });
+
+            // Adiciona tratamento de erro
+            sendStage.exceptionally(throwable -> {
+                LOG.error("Falha ao enviar para Kafka: " + throwable.getMessage());
+
+                // Implementa retry manual
+                retryKafkaSend(dto, 1, throwable);
+                return null;
+            });
+
+        } catch (Exception e) {
+            LOG.error("Erro ao preparar envio para Kafka: " + e.getMessage());
+            retryKafkaSend(dto, 1, e);
+        }
+    }
+
+    private void retryKafkaSend(RequisicaoTransacaoDTO dto, int attempt, Throwable originalError) {
+        if (attempt >= 3) {
+            LOG.error("Máximo de retries atingido para UUID: " + dto.getUuid());
+            logFailedKafkaMessage(dto, originalError);
+            return;
+        }
+
+        // Agenda retry com delay exponencial
+        long delay = (long) (1000 * Math.pow(2, attempt - 1)); // 1s, 2s, 4s
+
+        Uni.createFrom().voidItem()
+                .onItem().delayIt().by(Duration.ofMillis(delay))
+                .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+                .subscribe().with(
+                        ignored -> {
+                            try {
+                                LOG.info("Tentando reenviar para Kafka (tentativa " + (attempt + 1) + "): " + dto.getUuid());
+                                CompletionStage<Void> retryStage = transactionEmitter.send(dto);
+
+                                retryStage.exceptionally(throwable -> {
+                                    retryKafkaSend(dto, attempt + 1, throwable);
+                                    return null;
+                                });
+
+                            } catch (Exception e) {
+                                retryKafkaSend(dto, attempt + 1, e);
+                            }
+                        },
+                        failure -> {
+                            LOG.error("Erro ao agendar retry: " + failure.getMessage());
+                            logFailedKafkaMessage(dto, originalError);
+                        }
+                );
+    }
+
+    private void recordMetricsAsync(RequisicaoTransacaoDTO dto) {
+        Uni.createFrom().item(dto)
+                .runSubscriptionOn(Infrastructure.getDefaultWorkerPool())
+                .subscribe().with(
+                        item -> {
+                            Counter.builder("transactions.total")
+                                    .description("Total de transações processadas")
+                                    .tag("tipo", dto.getTipoTransacao().name())
+                                    .register(registry)
+                                    .increment();
+                        },
+                        failure -> LOG.warn("Falha ao registrar métricas: " + failure.getMessage())
+                );
+    }
+
+    private void logFailedKafkaMessage(RequisicaoTransacaoDTO dto, Throwable throwable) {
+        // Pode salvar em uma lista no Redis para reprocessamento posterior
+        try {
+            String failedMessage = getObjectMapper().writeValueAsString(new FailedMessageDTO(dto, throwable.getMessage()));
+            redisClient.append("failed-kafka-messages", failedMessage);
+        } catch (JsonProcessingException e) {
+            LOG.error("Não foi possível registrar mensagem falha do Kafka: " + e.getMessage());
+        }
+    }
 
 }
